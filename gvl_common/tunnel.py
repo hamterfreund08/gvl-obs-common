@@ -5,17 +5,24 @@ Es wird nur der selbst gestartete Prozess beendet, nie ein anderer cloudflared a
 import asyncio
 import os
 import re
+import urllib.parse
+
+from . import dns
 
 NO_WINDOW = 0x08000000
 TUNNEL_WAIT = 40
+DNS_WAIT = 30
 URL_PATTERN = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
 class Tunnel:
-    def __init__(self, exe, port, on_change, host="127.0.0.1"):
+    """wait_dns: den Link erst melden, wenn die Adresse oeffentlich aufloesbar ist (siehe dns.py)."""
+
+    def __init__(self, exe, port, on_change, host="127.0.0.1", wait_dns=False):
         self.exe = exe
         self.target = f"http://{host}:{port}"
         self.on_change = on_change
+        self.wait_dns = wait_dns
         self.process = None
         self.tasks = []
         self.state = {"state": "off", "url": "", "message": ""}
@@ -46,11 +53,17 @@ class Tunnel:
                 url = URL_PATTERN.search(line.decode("utf-8", "replace"))
                 if url and not found and "api.trycloudflare" not in url.group(0):
                     found = True
-                    self.set("ready", url.group(0))
+                    self.tasks.append(asyncio.create_task(self.announce(process, url.group(0))))
         finally:
             if process is self.process:
                 self.process = None
                 self.set("off", message="Der Tunnel wurde beendet. Bitte neu starten.")
+
+    async def announce(self, process, url):
+        if self.wait_dns:
+            await dns.wait_until_resolvable(urllib.parse.urlsplit(url).hostname, DNS_WAIT)
+        if process is self.process:
+            self.set("ready", url)
 
     async def timeout(self, process):
         await asyncio.sleep(TUNNEL_WAIT)

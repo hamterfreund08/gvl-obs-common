@@ -178,8 +178,12 @@ def remove_old_copy():
         shutil.rmtree(OLD_USER_DIR, ignore_errors=True)
 
 
-def install(log=print):
-    """Installiert oder ersetzt das Modul. OBS muss geschlossen sein."""
+def install(log=print, allow_running=False):
+    """Installiert oder ersetzt das Modul.
+
+    Ein noch nicht installiertes Modul darf auch bei laufendem OBS kopiert werden (allow_running), OBS laedt es erst
+    beim naechsten Start. Ein vorhandenes zu ersetzen geht nur bei geschlossenem OBS, weil die DLL dann geladen ist.
+    """
     remove_old_copy()
     state, text = status()
     if state in ("ok", "system"):
@@ -187,7 +191,7 @@ def install(log=print):
         return state
     if state in ("no-obs", "unsupported"):
         raise ModuleError(text)
-    if obs.obs_running():
+    if obs.obs_running() and not (allow_running and state == "missing"):
         raise ModuleError("Bitte zuerst OBS schließen.")
     asset = asset_for(obs_version())
     tag, url, checksums_url = release(asset)
