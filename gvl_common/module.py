@@ -2,8 +2,9 @@
 installiert es fuer den aktuellen Windows-Benutzer.
 
 Das Plugin wird nicht mit ausgeliefert, sondern bei der Installation unveraendert vom Release geladen und gegen die
-dort veroeffentlichte checksums.txt geprueft. Ziel ist der Plugin-Ordner von OBS im Benutzerprofil
-(%APPDATA%\\obs-studio\\plugins\\obs-vdoninja), dafuer braucht es keine Admin-Rechte. Welcher Build passt, haengt von
+dort veroeffentlichte checksums.txt geprueft. Ziel ist %ProgramData%\\obs-studio\\plugins\\obs-vdoninja, dort laedt
+OBS unter Windows Plugins ausserhalb des Programmordners, und Benutzer duerfen den Ordner ohne Admin-Rechte anlegen.
+Der Ordner %APPDATA%\\obs-studio\\plugins, den das Skript des Plugins nimmt, wird von OBS 32.1 nicht gelesen. Welcher Build passt, haengt von
 der OBS-Version ab: 32.0 bis 32.1 brauchen den Legacy-Build (FFmpeg 7), 32.2 und 33.0 den normalen (FFmpeg 8).
 Ist das Plugin schon systemweit im OBS-Ordner installiert, bleibt es dabei, damit OBS es nicht doppelt laedt.
 """
@@ -25,8 +26,10 @@ LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 DOWNLOAD_PREFIX = f"https://github.com/{REPO}/releases/download/"
 PAGE = f"https://github.com/{REPO}/releases/latest"
 DLL = "obs-vdoninja.dll"
-USER_DIR = os.path.join(obs.OBS_DIR, "plugins", "obs-vdoninja")
-MARKER = os.path.join(USER_DIR, "gvl_module.json")
+USER_DIR = os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "obs-studio", "plugins", "obs-vdoninja")
+OLD_USER_DIR = os.path.join(obs.OBS_DIR, "plugins", "obs-vdoninja")
+MARKER_NAME = "gvl_module.json"
+MARKER = os.path.join(USER_DIR, MARKER_NAME)
 ASSET_CURRENT = "obs-vdoninja-windows-x64.zip"
 ASSET_LEGACY = "obs-vdoninja-windows-x64-obs32.0-32.1.zip"
 ZIP_BIN = "obs-plugins/64bit/"
@@ -170,8 +173,14 @@ def extract(archive, target):
         raise ModuleError(f"{DLL} fehlt in der heruntergeladenen Datei.")
 
 
+def remove_old_copy():
+    if os.path.isfile(os.path.join(OLD_USER_DIR, MARKER_NAME)):
+        shutil.rmtree(OLD_USER_DIR, ignore_errors=True)
+
+
 def install(log=print):
     """Installiert oder ersetzt das Modul. OBS muss geschlossen sein."""
+    remove_old_copy()
     state, text = status()
     if state in ("ok", "system"):
         log(text)
@@ -204,6 +213,7 @@ def install(log=print):
 
 def uninstall():
     """Entfernt nur ein Modul, das wir selbst installiert haben."""
+    remove_old_copy()
     if marker():
         shutil.rmtree(USER_DIR, ignore_errors=True)
         return True
