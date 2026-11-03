@@ -8,6 +8,8 @@ from ctypes import wintypes
 OBS_DIR = os.path.join(os.environ.get("APPDATA", ""), "obs-studio")
 SNAPSHOT_PROCESSES = 0x2
 PROCESS_TERMINATE = 0x1
+PROCESS_QUERY_LIMITED = 0x1000
+STILL_ACTIVE = 259
 STOP_WAIT = 5
 
 
@@ -37,12 +39,48 @@ def process_list():
     return found
 
 
+def is_real_process(pid):
+    """Haengt OBS, legt Windows fuer den Fehlerbericht Kopien mit demselben Namen an, die danach oft liegen bleiben.
+    Solche Kopien lassen sich nicht oeffnen, ein echtes OBS des Benutzers schon."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(PROCESS_QUERY_LIMITED, False, pid)
+    if not handle:
+        return False
+    try:
+        size = wintypes.DWORD(1024)
+        path = ctypes.create_unicode_buffer(1024)
+        code = wintypes.DWORD()
+        return (bool(kernel.QueryFullProcessImageNameW(handle, 0, path, ctypes.byref(size)))
+                and bool(kernel.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == STILL_ACTIVE)
+    finally:
+        kernel.CloseHandle(handle)
+
+
 def obs_pids():
-    return {pid for pid, _, name in process_list() if name == "obs64.exe"}
+    return {pid for pid, _, name in process_list() if name == "obs64.exe" and is_real_process(pid)}
 
 
 def obs_running():
     return bool(obs_pids())
+
+
+def owner_obs(pid=None):
+    """Das OBS, das diesen Prozess gestartet hat (auch ueber den Starter einer gepackten EXE hinweg), sonst None."""
+    processes = {entry[0]: entry for entry in process_list()}
+    current = processes.get(pid or os.getpid())
+    for _ in range(6):
+        if current is None:
+            return None
+        parent = processes.get(current[1])
+        if parent is not None and parent[2] == "obs64.exe" and is_real_process(parent[0]):
+            return parent[0]
+        current = parent
+    return None
 
 
 def stop_service(service_exe, tunnel_exe="cloudflared.exe"):
