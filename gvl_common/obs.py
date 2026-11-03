@@ -37,8 +37,12 @@ def process_list():
     return found
 
 
+def obs_pids():
+    return {pid for pid, _, name in process_list() if name == "obs64.exe"}
+
+
 def obs_running():
-    return any(name == "obs64.exe" for _, _, name in process_list())
+    return bool(obs_pids())
 
 
 def stop_service(service_exe, tunnel_exe="cloudflared.exe"):
